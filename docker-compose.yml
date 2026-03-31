@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Microservicio Principal (Java Spring Boot)
   jce-app:
