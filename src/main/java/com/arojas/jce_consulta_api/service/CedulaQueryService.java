@@ -309,6 +309,7 @@ public class CedulaQueryService {
 					.nacionalidad(result.getNacionalidad())
 					.sexo(result.getSexo())
 					.fotoUrl(fotoUrl)
+					.fotoBase64(downloadPhotoAsBase64(fotoUrl))
 					.build();
 
 
@@ -406,5 +407,38 @@ public class CedulaQueryService {
 						todayQueries);
 			}
 		}
+	}
+
+	private String downloadPhotoAsBase64(String url) {
+		if (url == null || !url.startsWith("http"))
+			return null;
+		try {
+			java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
+					.connectTimeout(java.time.Duration.ofSeconds(10))
+					.build();
+
+			java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+					.uri(java.net.URI.create(url))
+					.header("User-Agent",
+							"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+					.header("Referer", "https://dataportal.jce.gob.do/")
+					.timeout(java.time.Duration.ofSeconds(15))
+					.build();
+
+			java.net.http.HttpResponse<byte[]> response = client.send(request,
+					java.net.http.HttpResponse.BodyHandlers.ofByteArray());
+
+			if (response.statusCode() == 200) {
+				String contentType = response.headers().firstValue("Content-Type").orElse("image/jpeg");
+				byte[] body = response.body();
+				if (body.length > 500) { // Valid image size
+					return "data:" + contentType + ";base64," + java.util.Base64.getEncoder().encodeToString(body);
+				}
+			}
+			log.warn("JCE photo download returned status: {} for URL: {}", response.statusCode(), url);
+		} catch (Exception e) {
+			log.error("Failed to download JCE photo from {}: {}", url, e.getMessage());
+		}
+		return null;
 	}
 }

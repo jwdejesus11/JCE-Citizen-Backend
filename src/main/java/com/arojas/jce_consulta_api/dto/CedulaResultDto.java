@@ -94,6 +94,9 @@ public class CedulaResultDto {
 	@JsonProperty("fotoUrl")
 	private String fotoUrl;
 
+	@JsonProperty("fotoBase64")
+	private String fotoBase64;
+
 	/**
 	 * Respuesta JSON original convertida desde XML
 	 */
