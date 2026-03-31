@@ -114,21 +114,24 @@ public class CedulaResultDto {
 				&& apellido1 != null && !apellido1.trim().isEmpty();
 	}
 
+	@JsonProperty("apellidos")
 	public String getApellidos() {
 		String a1 = apellido1 != null ? apellido1 : "";
 		String a2 = apellido2 != null ? apellido2 : "";
 		return (a1 + " " + a2).trim();
 	}
 
+	@JsonProperty("ocupacion")
 	public String getOcupacion() {
-		// Si no tienes ocupacion en tu DTO, puedes devolver null o un valor por defecto
-		return null;
+		return ocupacion;
 	}
 
+	@JsonProperty("nacionalidad")
 	public String getNacionalidad() {
 		return nacionalidad != null ? nacionalidad : descripcionNacionalidad;
 	}
 
+	@JsonProperty("foto")
 	public String getFoto() {
 		return fotoUrl;
 	}

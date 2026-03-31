@@ -3,8 +3,12 @@ package com.arojas.jce_consulta_api.service;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
@@ -47,6 +51,7 @@ public class PaymentService {
 	private final UserService userService;
 	private final AppSettingsService appSettingsService;
 	private final EmailService emailService;
+	private final ObjectMapper objectMapper;
 
 	// Configuration
 	@Value("${app.payment.buymeacoffee.base-url}")
@@ -76,9 +81,12 @@ public class PaymentService {
 
 		BigDecimal tokenPrice = appSettingsService.getTokenPrice();
 		BigDecimal totalAmount = calculateTotalAmount(tokenPrice, tokenQuantity);
-		String buyMeACoffeeUrl = generateBuyMeACoffeeUrl(tokenQuantity, totalAmount);
+		// Pre-save to get ID or generate one
+		String orderId = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+		String buyMeACoffeeUrl = generateBuyMeACoffeeUrl(orderId, tokenQuantity, totalAmount);
 
 		PaymentOrder paymentOrder = createPaymentOrderEntity(user, tokenQuantity, totalAmount, buyMeACoffeeUrl);
+		paymentOrder.setId(orderId);
 		paymentOrder = paymentOrderRepository.save(paymentOrder);
 
 		scheduleAutoConfirmationIfEnabled(paymentOrder.getId());
@@ -217,13 +225,34 @@ public class PaymentService {
 		log.info("Processing Buy Me a Coffee webhook");
 
 		try {
-			// TODO: Implement webhook validation and automatic processing
-			// For now just log the webhook reception
-
 			validateWebhookSignature(payload, signature);
-			processWebhookPayload(payload);
+			
+			// Parse payload
+			Map<String, Object> body = objectMapper.readValue(payload, Map.class);
+			Map<String, Object> data = (Map<String, Object>) body.get("data");
+			
+			if (data == null) {
+				throw new RuntimeException("Payload webhook inválido: data missing");
+			}
 
-			return "Webhook procesado exitosamente";
+			String message = (String) data.get("support_note");
+			if (message == null) message = (String) data.get("message");
+			
+			log.info("Webhook BMC message: {}", message);
+
+			// Extract OrderID from message
+			if (message != null && message.contains("OrderID: ")) {
+				String orderId = message.split("OrderID: ")[1].trim().split(" ")[0];
+				log.info("Found OrderID in webhook: {}", orderId);
+				
+				PaymentOrder order = getPaymentOrderByIdOrThrow(orderId);
+				if (order.getStatus() == PaymentStatus.PENDING) {
+					processPaymentConfirmation(order);
+					return "Pago confirmado automáticamente para orden: " + orderId;
+				}
+			}
+
+			return "Webhook recibido pero no se pudo asociar a una orden pendiente";
 
 		} catch (Exception e) {
 			log.error("Error processing webhook: {}", e.getMessage(), e);
@@ -272,9 +301,9 @@ public class PaymentService {
 		return tokenPrice.multiply(BigDecimal.valueOf(tokenQuantity));
 	}
 
-	private String generateBuyMeACoffeeUrl(int tokens, BigDecimal amount) {
+	private String generateBuyMeACoffeeUrl(String orderId, int tokens, BigDecimal amount) {
 		String baseUrl = String.format("%s/%s", buyMeACoffeeBaseUrl, buyMeACoffeeUsername);
-		String message = String.format("Compra de %d tokens para consultas JCE", tokens);
+		String message = String.format("Compra de %d tokens - OrderID: %s", tokens, orderId);
 
 		return String.format("%s?message=%s&amount=%.2f",
 				baseUrl,
@@ -407,17 +436,37 @@ public class PaymentService {
 				.build();
 	}
 
-	private void validateWebhookSignature(String payload, String signature) {
-		// TODO: Implement webhook signature validation
-		if (signature == null) {
-			log.warn("Webhook received without signature");
-		}
-	}
+	@Value("${app.payment.buymeacoffee.webhook-secret:}")
+	private String webhookSecret;
 
-	private void processWebhookPayload(String payload) {
-		// TODO: Implement payload processing logic
-		// Parse JSON, find matching payment order, confirm if valid
-		log.debug("Processing webhook payload: {}", payload);
+	private void validateWebhookSignature(String payload, String signature) {
+		if (signature == null || webhookSecret == null || webhookSecret.isEmpty()) {
+			log.warn("Webhook validation skipped: missing signature or secret");
+			return;
+		}
+
+		try {
+			javax.crypto.Mac sha256_HMAC = javax.crypto.Mac.getInstance("HmacSHA256");
+			javax.crypto.spec.SecretKeySpec secret_key = new javax.crypto.spec.SecretKeySpec(
+					webhookSecret.getBytes(java.nio.charset.StandardCharsets.UTF_8), "HmacSHA256");
+			sha256_HMAC.init(secret_key);
+
+			byte[] hash = sha256_HMAC.doFinal(payload.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+			StringBuilder hexString = new StringBuilder();
+			for (byte b : hash) {
+				String hex = Integer.toHexString(0xff & b);
+				if (hex.length() == 1) hexString.append('0');
+				hexString.append(hex);
+			}
+
+			if (!hexString.toString().equals(signature)) {
+				log.error("Invalid webhook signature from Buy Me a Coffee");
+				throw new RuntimeException("Invalid signature");
+			}
+			log.info("Webhook signature validated successfully");
+		} catch (Exception e) {
+			throw new RuntimeException("Error validating signature", e);
+		}
 	}
 
 	private PaymentOrderDto convertToDto(PaymentOrder paymentOrder) {

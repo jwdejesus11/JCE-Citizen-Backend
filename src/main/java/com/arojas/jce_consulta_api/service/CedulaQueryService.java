@@ -229,8 +229,29 @@ public class CedulaQueryService {
 
 	private CedulaResult buildCedulaResult(CedulaResultDto resultDto) {
 		LocalDate fechaNac = null;
-		if (resultDto.getFechaNacimiento() != null && !resultDto.getFechaNacimiento().isEmpty())
-			fechaNac = LocalDate.parse(resultDto.getFechaNacimiento(), DateTimeFormatter.ISO_DATE);
+		if (resultDto.getFechaNacimiento() != null && !resultDto.getFechaNacimiento().isEmpty()) {
+			try {
+				// JCE format is often "M/d/yyyy h:mm:ss a" or "M/d/yyyy"
+				String dateStr = resultDto.getFechaNacimiento();
+				if (dateStr.contains(" ")) {
+					java.time.format.DateTimeFormatter jceFormatter = java.time.format.DateTimeFormatter
+							.ofPattern("M/d/yyyy h:mm:ss a", java.util.Locale.US);
+					fechaNac = LocalDateTime.parse(dateStr, jceFormatter).toLocalDate();
+				} else {
+					java.time.format.DateTimeFormatter jceFormatterShort = java.time.format.DateTimeFormatter
+							.ofPattern("M/d/yyyy", java.util.Locale.US);
+					fechaNac = LocalDate.parse(dateStr, jceFormatterShort);
+				}
+			} catch (Exception e) {
+				log.warn("Failed to parse JCE date: {}, falling back to ISO", resultDto.getFechaNacimiento());
+				try {
+					fechaNac = LocalDate.parse(resultDto.getFechaNacimiento(), DateTimeFormatter.ISO_DATE);
+				} catch (Exception e2) {
+					log.error("Total failure parsing date: {}", resultDto.getFechaNacimiento());
+				}
+			}
+		}
+
 
 		return CedulaResult.builder()
 				.nombres(resultDto.getNombres())
@@ -268,20 +289,29 @@ public class CedulaQueryService {
 		CedulaResultDto resultDto = null;
 		if (query.getResult() != null) {
 			CedulaResult result = query.getResult();
+			String fotoUrl = result.getFoto();
+			if (fotoUrl != null && (fotoUrl.startsWith("/") || !fotoUrl.toLowerCase().startsWith("http"))) {
+				fotoUrl = "https://dataportal.jce.gob.do" + (fotoUrl.startsWith("/") ? "" : "/") + fotoUrl;
+			}
+
 			resultDto = CedulaResultDto.builder()
+					.success(true)
+					.message("Consulta exitosa")
 					.nombres(result.getNombres())
 					.apellido1(result.getApellidos())
-					.apellido2(result.getApellidos())
+					.apellido2("") // Avoid repetition as apellido1 contains full last names
 					.fechaNacimiento(result.getFechaNacimiento() != null
-							? result.getFechaNacimiento().format(DateTimeFormatter.ISO_DATE)
+							? result.getFechaNacimiento().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy"))
 							: null)
 					.lugarNacimiento(result.getLugarNacimiento())
 					.estadoCivil(result.getEstadoCivil())
 					.ocupacion(result.getOcupacion())
 					.nacionalidad(result.getNacionalidad())
 					.sexo(result.getSexo())
-					.fotoUrl(result.getFoto())
+					.fotoUrl(fotoUrl)
 					.build();
+
+
 		}
 
 		return CedulaQueryDto.builder()

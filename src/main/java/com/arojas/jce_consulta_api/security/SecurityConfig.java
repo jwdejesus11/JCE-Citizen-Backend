@@ -57,6 +57,11 @@ public class SecurityConfig {
 				.csrf(AbstractHttpConfigurer::disable)
 				.cors(cors -> cors.configurationSource(corsConfigurationSource()))
 				.authorizeHttpRequests(authz -> authz
+						// ============= CONFIGURACIONES PÚBLICAS (Sin Autenticación) =============
+						.requestMatchers(HttpMethod.GET, "/api/v1/settings/public").permitAll()
+						.requestMatchers(HttpMethod.GET, "/api/v1/settings/features").permitAll()
+						.requestMatchers(HttpMethod.GET, "/api/v1/settings/testimonials").permitAll()
+
 						// ============= RUTAS PÚBLICAS (Sin Autenticación) =============
 						.requestMatchers(getPublicEndpoints()).permitAll()
 
@@ -80,14 +85,16 @@ public class SecurityConfig {
 						// ============= RUTAS DE CONSULTA JCE (Requiere Tokens) =============
 						.requestMatchers("/api/v1/cedula/**").hasAnyRole("USER", "ADMIN")
 						.requestMatchers("/api/v1/query/**").hasAnyRole("USER", "ADMIN")
+						.requestMatchers("/api/v1/cedula-queries/**").hasAnyRole("USER", "ADMIN")
+						.requestMatchers("/api/v1/telecom/**").hasAnyRole("USER", "ADMIN")
+
 
 						// ============= RUTAS DE PAGOS (Usuario autenticado) =============
 						.requestMatchers(HttpMethod.POST, "/api/v1/payments/**").hasAnyRole("USER", "ADMIN")
 						.requestMatchers(HttpMethod.GET, "/api/v1/payments/my-payments").hasAnyRole("USER", "ADMIN")
 
-						// ============= CONFIGURACIONES (Lectura pública, escritura admin)
+						// ============= CONFIGURACIONES (Escritura admin)
 						// =============
-						.requestMatchers(HttpMethod.GET, "/api/v1/settings/**").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/v1/settings/**").hasRole("ADMIN")
 						.requestMatchers(HttpMethod.PUT, "/api/v1/settings/**").hasRole("ADMIN")
 						.requestMatchers(HttpMethod.DELETE, "/api/v1/settings/**").hasRole("ADMIN")
@@ -106,14 +113,17 @@ public class SecurityConfig {
 	 */
 	private String[] getPublicEndpoints() {
 		return new String[] {
-				// Autenticación
-				"/api/v1/auth/**",
+				// Autenticación (Solo estos son 100% públicos)
+				"/api/v1/auth/login",
+				"/api/v1/auth/register",
+				"/api/v1/auth/refresh",
 
 				// Rutas públicas generales
 				"/api/v1/public/**",
 
 				// Health check básico
 				"/api/v1/health",
+
 
 				// Información de la aplicación
 				"/api/v1/info",

@@ -1,0 +1,105 @@
+services:
+  # Base de datos MySQL
+  jce-mysql:
+    image: mysql:8.4.0
+    container_name: jce-mysql
+    restart: always
+    environment:
+      MYSQL_DATABASE: jce_consulta_db
+      MYSQL_USER: ${DB_USER:-arojas}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-@Emulador1}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpass}
+    ports:
+      - "${DB_PORT_EXTERNAL:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - jce-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis para caché y rate limiting
+  jce-redis:
+    image: redis:7.2.4-alpine
+    container_name: jce-redis
+    restart: always
+    ports:
+      - "${REDIS_PORT_EXTERNAL:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - jce-network
+    command: redis-server --appendonly yes --save 60 1
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Microservicio Java Spring Boot
+  jce-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jce-app
+    restart: on-failure
+    depends_on:
+      jce-mysql:
+        condition: service_healthy
+      jce-redis:
+        condition: service_healthy
+    environment:
+      # Database
+      SPRING_DATASOURCE_URL: jdbc:mysql://jce-mysql:3306/jce_consulta_db?createDatabaseIfNotExist=true&serverTimezone=UTC&allowPublicKeyRetrieval=true&useSSL=false
+      SPRING_DATASOURCE_USERNAME: ${DB_USER:-arojas}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-@Emulador1}
+      
+      # Redis
+      SPRING_DATA_REDIS_HOST: jce-redis
+      SPRING_DATA_REDIS_PORT: 6379
+      
+      # Mail (Default configuration for GMail)
+      SPRING_MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      SPRING_MAIL_PORT: ${MAIL_PORT:-587}
+      SPRING_MAIL_USERNAME: ${MAIL_USERNAME:-infoartilesphotography@gmail.com}
+      SPRING_MAIL_PASSWORD: ${MAIL_PASSWORD:-wcvzltfwiufnhtkw}
+      
+      # Security
+      APP_SECURITY_JWT_SECRET: ${JWT_SECRET:-YourBase64EncodedSecretKeyHereMustBeAtLeast256Bits}
+      
+      # App Settings
+      APP_LOGGING_ENABLED: "true"
+      SERVER_PORT: 8080
+      
+    ports:
+      - "${APP_PORT_EXTERNAL:-8080}:8080"
+    networks:
+      - jce-network
+
+  # Portada y Dashboard (React)
+  jce-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: jce-frontend
+    restart: always
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8080/api/v1
+    ports:
+      - "${FRONT_PORT_EXTERNAL:-3000}:80"
+    networks:
+      - jce-network
+    depends_on:
+      - jce-app
+
+volumes:
+
+  mysql_data:
+  redis_data:
+
+networks:
+  jce-network:
+    driver: bridge
